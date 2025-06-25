@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tetris Game</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       background: #111;
       color: #fff;
@@ -15,9 +16,19 @@
     }
     canvas {
       background: #000;
-      display: block;
-      margin: 20px auto;
       border: 2px solid #444;
+    }
+    #game-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px;
+    }
+    #play-area {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 20px;
     }
     #controls {
       margin-top: 10px;
@@ -31,27 +42,55 @@
       border-radius: 5px;
       font-size: 16px;
     }
-    #next {
-      margin: 20px auto;
+    #game-over {
+      display: none;
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      padding: 20px;
+      border-radius: 10px;
+      color: white;
+    }
+    @media (max-width: 768px) {
+      canvas {
+        width: 90vw !important;
+        height: auto !important;
+      }
+      #play-area {
+        flex-direction: column;
+        align-items: center;
+      }
     }
   </style>
 </head>
 <body>
   <h1>Tetris</h1>
-  <div style="display: flex; justify-content: center; align-items: start; gap: 20px;">
-    <canvas id="tetris" width="240" height="400"></canvas>
-    <div>
-      <p>Score: <span id="score">0</span></p>
-      <p>Next:</p>
-      <canvas id="next" width="80" height="80"></canvas>
+  <div id="game-container">
+    <div id="play-area">
+      <canvas id="tetris" width="240" height="400"></canvas>
+      <div>
+        <p>Score: <span id="score">0</span></p>
+        <p>Next:</p>
+        <canvas id="next" width="80" height="80"></canvas>
+      </div>
+    </div>
+    <div id="controls">
+      <button class="btn" onclick="playerMove(-1)">◀️</button>
+      <button class="btn" onclick="playerRotate()">🔁</button>
+      <button class="btn" onclick="playerMove(1)">▶️</button>
+      <button class="btn" onclick="playerDrop()">🔽</button>
+    </div>
+    <div id="game-over">
+      <h2>Game Over</h2>
+      <p>Your score: <span id="final-score"></span></p>
+      <button class="btn" onclick="restartGame()">Restart</button>
     </div>
   </div>
-  <div id="controls">
-    <button class="btn" onclick="playerMove(-1)">◀️</button>
-    <button class="btn" onclick="playerRotate()">🔁</button>
-    <button class="btn" onclick="playerMove(1)">▶️</button>
-    <button class="btn" onclick="playerDrop()">🔽</button>
-  </div>
+  <audio id="bgm" src="https://upload.wikimedia.org/wikipedia/commons/4/42/Tetris_theme.ogg" loop autoplay></audio>
+  <audio id="line-clear" src="https://www.myinstants.com/media/sounds/coin.mp3"></audio>
+
   <script>
     const canvas = document.getElementById('tetris');
     const context = canvas.getContext('2d');
@@ -61,17 +100,12 @@
     const nextContext = nextCanvas.getContext('2d');
     nextContext.scale(20, 20);
 
-    const colors = [
-      null,
-      '#00f0f0', // I
-      '#0000f0', // J
-      '#f0a000', // L
-      '#f0f000', // O
-      '#00f000', // S
-      '#a000f0', // T
-      '#f00000'  // Z
-    ];
+    const bgm = document.getElementById('bgm');
+    const clearSound = document.getElementById('line-clear');
+    bgm.volume = 0.05;
+    clearSound.volume = 0.2;
 
+    const colors = [null,'#00f0f0','#0000f0','#f0a000','#f0f000','#00f000','#a000f0','#f00000'];
     const pieces = 'IJLOSTZ';
 
     function createPiece(type) {
@@ -97,9 +131,19 @@
       });
     }
 
+    function drawGrid() {
+      context.strokeStyle = '#222';
+      for (let x = 0; x < canvas.width / 20; x++) {
+        for (let y = 0; y < canvas.height / 20; y++) {
+          context.strokeRect(x, y, 1, 1);
+        }
+      }
+    }
+
     function draw() {
       context.fillStyle = '#000';
       context.fillRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
       drawMatrix(arena, {x: 0, y: 0});
       drawMatrix(player.matrix, player.pos);
     }
@@ -160,7 +204,8 @@
         player.pos.y--;
         merge(arena, player);
         playerReset();
-        arenaSweep();
+        const cleared = arenaSweep();
+        if (cleared > 0) clearSound.play();
         updateScore();
       }
       dropCounter = 0;
@@ -178,9 +223,10 @@
       next.matrix = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
       drawPreview();
       if (collide(arena, player)) {
-        arena.forEach(row => row.fill(0));
-        player.score = 0;
-        updateScore();
+        document.getElementById('final-score').textContent = player.score;
+        document.getElementById('game-over').style.display = 'block';
+        bgm.pause();
+        cancelAnimationFrame(animationId);
       }
     }
 
@@ -191,6 +237,7 @@
 
     function arenaSweep() {
       let rowCount = 1;
+      let cleared = 0;
       outer: for (let y = arena.length - 1; y >= 0; --y) {
         for (let x = 0; x < arena[y].length; ++x) {
           if (arena[y][x] === 0) continue outer;
@@ -200,13 +247,16 @@
         ++y;
         player.score += rowCount * 10;
         rowCount *= 2;
+        cleared++;
       }
+      return cleared;
     }
 
     function updateScore() {
       document.getElementById('score').textContent = player.score;
     }
 
+    let animationId;
     function update(time = 0) {
       const deltaTime = time - lastTime;
       lastTime = time;
@@ -215,7 +265,18 @@
         playerDrop();
       }
       draw();
-      requestAnimationFrame(update);
+      animationId = requestAnimationFrame(update);
+    }
+
+    function restartGame() {
+      document.getElementById('game-over').style.display = 'none';
+      arena.forEach(row => row.fill(0));
+      player.score = 0;
+      updateScore();
+      playerReset();
+      bgm.currentTime = 0;
+      bgm.play();
+      update();
     }
 
     document.addEventListener('keydown', event => {
@@ -228,7 +289,6 @@
     const arena = createMatrix(12, 20);
     const player = { pos: { x: 0, y: 0 }, matrix: null, score: 0 };
     const next = { matrix: createPiece(pieces[Math.floor(Math.random() * pieces.length)]) };
-
     let dropCounter = 0;
     let dropInterval = 1000;
     let lastTime = 0;
